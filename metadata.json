@@ -1,0 +1,6 @@
+{
+  "name": "作業統整管理系統",
+  "description": "智慧作業統整與課表系統，整合全生命週期資訊安全架構 (身分驗證、RBAC/ABAC 存取控制、AES-256-GCM 加密、區塊鏈式稽核鏈與事件應變) 及課堂期限提醒。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
