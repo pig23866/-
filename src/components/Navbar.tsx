@@ -1,71 +1,104 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   BookMarked,
   Plus,
   Bell,
-  Download,
-  Upload,
-  RotateCcw,
-  HardDrive,
-  LogOut,
-  User as UserIcon,
-  CheckCircle,
+  Trash2,
   Calendar,
+  Sun,
+  Moon,
+  LogOut,
+  KeyRound,
   Shield,
+  User as UserIcon,
+  UserPlus,
+  ChevronDown,
+  Database,
+  FileText,
+  LayoutGrid,
+  Download,
 } from 'lucide-react';
-import { User } from 'firebase/auth';
-import { GoogleSignInButton } from './GoogleSignInButton';
 import { playChime, requestNotificationPermission } from '../lib/notifications';
+import { SessionUser } from '../types';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface NavbarProps {
-  user: User | null;
-  isAuthenticated: boolean;
-  isSigningIn: boolean;
-  onSignIn: () => Promise<void>;
-  onSignOut: () => Promise<void>;
   onOpenAddModal: () => void;
   onOpenSchedule: () => void;
-  onOpenSecurity?: () => void;
-  isSecurityView?: boolean;
-  onExportBackup: () => void;
-  onRestoreBackup?: () => void;
-  onResetData: () => void;
+  onOpenBackupRestore: () => void;
+  onOpenAuditLogs?: () => void;
+  onClearAllAssignments: () => void;
   notificationGranted: boolean;
   setNotificationGranted: (val: boolean) => void;
+  assignmentCount: number;
+  currentUser: SessionUser | null;
+  onLogout: () => void;
+  onOpenChangePassword: () => void;
+  onOpenUserManagement?: () => void;
+  isDarkMode: boolean;
+  onToggleDarkMode: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
-  user,
-  isAuthenticated,
-  isSigningIn,
-  onSignIn,
-  onSignOut,
   onOpenAddModal,
   onOpenSchedule,
-  onOpenSecurity,
-  isSecurityView,
-  onExportBackup,
-  onRestoreBackup,
-  onResetData,
+  onOpenBackupRestore,
+  onOpenAuditLogs,
+  onClearAllAssignments,
   notificationGranted,
   setNotificationGranted,
+  currentUser,
+  onLogout,
+  onOpenChangePassword,
+  onOpenUserManagement,
+  isDarkMode,
+  onToggleDarkMode,
 }) => {
   const [currentClock, setCurrentClock] = useState('');
+  const [showFeaturesMenu, setShowFeaturesMenu] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+
+  const featuresMenuRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const updateTime = () => {
       const now = new Date();
-      const month = now.getMonth() + 1;
-      const date = now.getDate();
-      const day = ['日', '一', '二', '三', '四', '五', '六'][now.getDay()];
-      const hours = now.getHours().toString().padStart(2, '0');
-      const minutes = now.getMinutes().toString().padStart(2, '0');
-      setCurrentClock(`${month}月${date}日 週${day} ${hours}:${minutes}`);
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const date = String(now.getDate()).padStart(2, '0');
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const seconds = String(now.getSeconds()).padStart(2, '0');
+      const days = ['日', '一', '二', '三', '四', '五', '六'];
+      const dayName = days[now.getDay()];
+      setCurrentClock(`${year}/${month}/${date} (${dayName}) ${hours}:${minutes}:${seconds}`);
     };
 
     updateTime();
-    const interval = setInterval(updateTime, 30000);
+    const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (
+        featuresMenuRef.current &&
+        !featuresMenuRef.current.contains(e.target as Node)
+      ) {
+        setShowFeaturesMenu(false);
+      }
+      if (
+        userMenuRef.current &&
+        !userMenuRef.current.contains(e.target as Node)
+      ) {
+        setShowUserMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
   const handleToggleNotification = async () => {
@@ -76,157 +109,324 @@ export const Navbar: React.FC<NavbarProps> = ({
     }
   };
 
+  const isAdmin = currentUser?.role === 'admin';
+
   return (
-    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-2xs">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-        {/* Brand & Logo */}
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-xs shadow-blue-500/20">
-            <BookMarked className="w-5 h-5" />
+    <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80 shadow-2xs transition-colors duration-200">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-18 flex items-center justify-between gap-3 sm:gap-6">
+        {/* Adjusted Brand & Title Typography */}
+        <div className="flex items-center gap-3 sm:gap-3.5 min-w-0">
+          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-indigo-700 text-white flex items-center justify-center shrink-0 shadow-md shadow-blue-500/20 ring-1 ring-black/5 dark:ring-white/10">
+            <BookMarked className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight">
-                作業統整系統
+          <div className="min-w-0 flex flex-col justify-center">
+            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+              <h1 className="text-base sm:text-lg lg:text-xl font-black text-slate-900 dark:text-white tracking-tight leading-none">
+                作業統整管理系統
               </h1>
-              <span className="hidden sm:inline-block px-2 py-0.5 text-[10px] font-semibold bg-blue-50 text-blue-700 rounded-full border border-blue-200/60">
-                期限提醒 • 學科分類
+              {currentUser && (
+                <span
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold rounded-lg border leading-tight shrink-0 ${
+                    isAdmin
+                      ? 'bg-purple-50 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border-purple-200/80 dark:border-purple-800'
+                      : 'bg-blue-50 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border-blue-200/80 dark:border-blue-800'
+                  }`}
+                >
+                  {isAdmin ? <Shield className="w-3 h-3 text-purple-500" /> : <UserIcon className="w-3 h-3 text-blue-500" />}
+                  <span>{isAdmin ? '管理員' : '一般學員'}</span>
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 mt-1 text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium truncate">
+              <span className="text-slate-700 dark:text-slate-300 font-semibold truncate">
+                正98期第1教授班 (資訊)
+              </span>
+              <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-600 shrink-0" />
+              <span className="font-mono text-[11px] hidden xs:inline shrink-0">
+                {currentClock}
               </span>
             </div>
-            <p className="text-xs text-slate-500 hidden md:block">
-              目前時間：{currentClock}
-            </p>
           </div>
         </div>
 
-        {/* Action Controls */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          {/* Notification Button */}
-          <button
-            type="button"
-            onClick={handleToggleNotification}
-            className={`p-2 rounded-xl border transition-colors cursor-pointer ${
-              notificationGranted
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 hover:text-slate-700'
-            }`}
-            title={notificationGranted ? '桌面即時提醒已啟用' : '點擊啟用作業期限桌面通知'}
-          >
-            <Bell className="w-4 h-4" />
-          </button>
-
-          {/* Timetable / Schedule Button */}
-          <button
-            id="navbar-open-schedule-btn"
-            type="button"
-            onClick={onOpenSchedule}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:text-blue-600 bg-slate-100 hover:bg-blue-50 hover:border-blue-200 rounded-xl border border-slate-200 transition-all cursor-pointer"
-            title="開啟陸官正98期全週課表"
-          >
-            <Calendar className="w-3.5 h-3.5 text-blue-600" />
-            <span>全週課表</span>
-          </button>
-
-          {/* Security Lifecycle Architecture (作業一) */}
-          <button
-            id="navbar-open-security-btn"
-            type="button"
-            onClick={onOpenSecurity}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border transition-all cursor-pointer ${
-              isSecurityView
-                ? 'bg-slate-900 text-blue-400 border-slate-900 shadow-xs'
-                : 'text-slate-700 hover:text-blue-700 bg-blue-50/70 hover:bg-blue-100 border-blue-200'
-            }`}
-            title="國防資安作業一：全生命週期資安架構 (Identity, Access, Crypto, Audit, IR)"
-          >
-            <Shield className="w-3.5 h-3.5 text-blue-600" />
-            <span className="hidden sm:inline">資安架構</span>
-            <span className="text-[10px] px-1.5 py-0.2 font-bold bg-blue-600 text-white rounded">作業一</span>
-          </button>
-
-          {/* Backup Export */}
-          <button
-            type="button"
-            onClick={onExportBackup}
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 rounded-xl border border-slate-200 transition-colors cursor-pointer"
-            title="產出不可否認安全加密備份檔案 (附帶 SHA-256 Checksum 與數位簽章)"
-          >
-            <Download className="w-3.5 h-3.5 text-slate-500" />
-            <span className="hidden md:inline">安全備份</span>
-          </button>
-
-          {/* Backup Restore */}
-          {onRestoreBackup && (
-            <button
-              type="button"
-              onClick={onRestoreBackup}
-              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-600 hover:text-blue-750 bg-white hover:bg-blue-50 rounded-xl border border-slate-200 transition-colors cursor-pointer"
-              title="還原安全備份 (自動進行 SHA-256 完整性與數位簽章核驗)"
-            >
-              <Upload className="w-3.5 h-3.5 text-blue-600" />
-              <span className="hidden md:inline">還原備份</span>
-            </button>
-          )}
-
-          {/* Reset Demo */}
-          <button
-            type="button"
-            onClick={onResetData}
-            className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-500 hover:text-slate-800 bg-white hover:bg-slate-50 rounded-xl border border-slate-200 transition-colors cursor-pointer"
-            title="重設示範資料"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
-            <span>示範資料</span>
-          </button>
-
-          {/* Google Auth Status / Sign In Button */}
-          {isAuthenticated && user ? (
-            <div className="flex items-center gap-2 pl-1 sm:pl-2 border-l border-slate-200">
-              <div
-                className="flex items-center gap-1.5 bg-slate-50 border border-slate-200/80 px-2 py-1 rounded-xl"
-                title={`已連結 Google 帳號: ${user.email || user.displayName}`}
-              >
-                {user.photoURL ? (
-                  <img
-                    src={user.photoURL}
-                    alt={user.displayName || 'Google User'}
-                    className="w-5 h-5 rounded-full object-cover"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <UserIcon className="w-4 h-4 text-slate-600" />
-                )}
-                <span className="text-xs font-semibold text-slate-700 max-w-[80px] sm:max-w-[110px] truncate hidden xs:inline">
-                  {user.displayName || user.email?.split('@')[0]}
-                </span>
-                <span className="w-2 h-2 rounded-full bg-emerald-500" title="雲端硬碟已連線" />
-              </div>
-
-              <button
-                type="button"
-                onClick={onSignOut}
-                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer"
-                title="登出 Google 帳號"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            </div>
-          ) : (
-            <div className="pl-1 sm:pl-2 border-l border-slate-200">
-              <GoogleSignInButton onClick={onSignIn} isLoading={isSigningIn} />
-            </div>
-          )}
-
-          {/* Primary Add Assignment Button */}
+        {/* Action Controls - Streamlined with Dropdown Menu */}
+        <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+          {/* Primary Action Button: 新增作業 */}
           <button
             id="navbar-add-assignment-btn"
             type="button"
             onClick={onOpenAddModal}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs sm:text-sm font-semibold rounded-xl shadow-xs shadow-blue-300 transition-all cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs shadow-blue-500/20 transition-all cursor-pointer"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-4 h-4 stroke-[2.5]" />
             <span>新增作業</span>
           </button>
+
+          {/* Quick Dark Mode Toggle */}
+          <button
+            id="navbar-dark-mode-toggle"
+            type="button"
+            onClick={onToggleDarkMode}
+            className="p-2 sm:p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/90 text-slate-600 dark:text-amber-400 hover:bg-slate-50 dark:hover:bg-slate-700/70 transition-all cursor-pointer shadow-2xs"
+            title={isDarkMode ? '切換為淺色模式' : '切換為深色模式'}
+            aria-label="切換深淺模式"
+          >
+            {isDarkMode ? (
+              <Sun className="w-4 h-4 transition-transform duration-300 rotate-0 hover:rotate-45" />
+            ) : (
+              <Moon className="w-4 h-4 transition-transform duration-300 rotate-0 hover:-rotate-12 text-slate-700" />
+            )}
+          </button>
+
+          {/* Consolidated Features Dropdown Menu (功能選單下拉按鈕) */}
+          <div className="relative" ref={featuresMenuRef}>
+            <button
+              id="navbar-features-menu-btn"
+              type="button"
+              onClick={() => {
+                setShowFeaturesMenu(!showFeaturesMenu);
+                setShowUserMenu(false);
+              }}
+              className={`inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-semibold rounded-xl border transition-all cursor-pointer ${
+                showFeaturesMenu
+                  ? 'bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700 ring-2 ring-blue-500/10'
+                  : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/60 shadow-2xs'
+              }`}
+              title="開啟系統與管理功能選單"
+            >
+              <LayoutGrid className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <span className="hidden xs:inline">功能選單</span>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${
+                  showFeaturesMenu ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+
+            {/* Dropdown Menu Popover */}
+            {showFeaturesMenu && (
+              <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 py-2 z-50 animate-in fade-in zoom-in-95 divide-y divide-slate-100 dark:divide-slate-800">
+                {/* Section 1: 課堂與提醒 */}
+                <div className="py-1">
+                  <div className="px-3.5 py-1 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
+                    課堂與排程
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowFeaturesMenu(false);
+                      onOpenSchedule();
+                    }}
+                    className="w-full px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-950/50 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-2.5 cursor-pointer text-left transition-colors"
+                  >
+                    <Calendar className="w-4 h-4 text-blue-500 shrink-0" />
+                    <div className="flex-1">
+                      <div>全週課表系統</div>
+                      <div className="text-[10px] text-slate-400 font-normal">
+                        檢視各節教室與授課教官
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleToggleNotification();
+                    }}
+                    className="w-full px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-between cursor-pointer text-left transition-colors"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Bell
+                        className={`w-4 h-4 shrink-0 ${
+                          notificationGranted ? 'text-emerald-500' : 'text-slate-400'
+                        }`}
+                      />
+                      <div>
+                        <div>作業期限提醒</div>
+                        <div className="text-[10px] text-slate-400 font-normal">
+                          {notificationGranted ? '已啟用即時通知' : '點擊啟用瀏覽器通知'}
+                        </div>
+                      </div>
+                    </div>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold ${
+                        notificationGranted
+                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                          : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                      }`}
+                    >
+                      {notificationGranted ? '已開啟' : '關閉'}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Section 2: 資料備份與復原 */}
+                <div className="py-1">
+                  <div className="px-3.5 py-1 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
+                    資料管理
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowFeaturesMenu(false);
+                      onOpenBackupRestore();
+                    }}
+                    className="w-full px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2.5 cursor-pointer text-left transition-colors"
+                  >
+                    <Database className="w-4 h-4 text-indigo-500 shrink-0" />
+                    <div className="flex-1">
+                      <div>資料備份與復原</div>
+                      <div className="text-[10px] text-slate-400 font-normal">
+                        匯出或還原課表與作業 JSON
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowFeaturesMenu(false);
+                      onClearAllAssignments();
+                    }}
+                    className="w-full px-3.5 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center gap-2.5 cursor-pointer text-left transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4 text-rose-500 shrink-0" />
+                    <div className="flex-1">
+                      <div>清空作業清單</div>
+                      <div className="text-[10px] text-rose-400/80 font-normal">
+                        清除所有已登記的作業
+                      </div>
+                    </div>
+                  </button>
+                </div>
+
+                {/* Section 3: 管理員專用 (只有管理員顯示) */}
+                {isAdmin && (
+                  <div className="py-1">
+                    <div className="px-3.5 py-1 text-[10px] font-bold tracking-wider text-purple-600 dark:text-purple-400 uppercase flex items-center gap-1">
+                      <Shield className="w-3 h-3" />
+                      管理員專區
+                    </div>
+                    {onOpenUserManagement && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowFeaturesMenu(false);
+                          onOpenUserManagement();
+                        }}
+                        className="w-full px-3.5 py-2 text-xs font-semibold text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/50 flex items-center gap-2.5 cursor-pointer text-left transition-colors"
+                      >
+                        <UserPlus className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
+                        <div className="flex-1">
+                          <div>帳號建立與管理</div>
+                          <div className="text-[10px] text-purple-500/80 font-normal">
+                            新增學員與管理員帳號
+                          </div>
+                        </div>
+                      </button>
+                    )}
+                    {onOpenAuditLogs && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowFeaturesMenu(false);
+                          onOpenAuditLogs();
+                        }}
+                        className="w-full px-3.5 py-2 text-xs font-semibold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 flex items-center gap-2.5 cursor-pointer text-left transition-colors"
+                      >
+                        <FileText className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                        <div className="flex-1">
+                          <div>系統安全稽核日誌</div>
+                          <div className="text-[10px] text-indigo-500/80 font-normal">
+                            查看 Hash 完整性保護紀錄
+                          </div>
+                        </div>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* User Account Dropdown Menu */}
+          {currentUser && (
+            <div className="relative" ref={userMenuRef}>
+              <button
+                id="navbar-user-menu-btn"
+                type="button"
+                onClick={() => {
+                  setShowUserMenu(!showUserMenu);
+                  setShowFeaturesMenu(false);
+                }}
+                className={`flex items-center gap-2 px-2 sm:px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                  isAdmin
+                    ? 'bg-purple-50/80 dark:bg-purple-950/50 text-purple-800 dark:text-purple-200 border-purple-200 dark:border-purple-800/80 hover:bg-purple-100'
+                    : 'bg-blue-50/80 dark:bg-blue-950/50 text-blue-800 dark:text-blue-200 border-blue-200 dark:border-blue-800/80 hover:bg-blue-100'
+                }`}
+                title="個人帳號設定"
+              >
+                <div
+                  className={`w-6 h-6 rounded-lg flex items-center justify-center text-white text-[11px] font-bold ${
+                    isAdmin ? 'bg-purple-600' : 'bg-blue-600'
+                  }`}
+                >
+                  {isAdmin ? 'A' : '98'}
+                </div>
+                <span className="hidden md:inline max-w-[80px] truncate">
+                  {currentUser.username}
+                </span>
+                <ChevronDown className="w-3 h-3 text-slate-400" />
+              </button>
+
+              {/* User Dropdown Popover */}
+              {showUserMenu && (
+                <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 py-1.5 z-50 animate-in fade-in zoom-in-95">
+                  <div className="px-3.5 py-2.5 border-b border-slate-100 dark:border-slate-800">
+                    <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                      {currentUser.displayName}
+                    </p>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                      帳號：{currentUser.username} ({isAdmin ? '管理員' : '一般學員'})
+                    </span>
+                  </div>
+
+                  <div className="py-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        onOpenChangePassword();
+                      }}
+                      className="w-full px-3.5 py-2 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2.5 cursor-pointer text-left transition-colors"
+                    >
+                      <KeyRound className="w-3.5 h-3.5 text-blue-500" />
+                      <span>修改密碼</span>
+                    </button>
+
+                    {/* In-App PWA Install in menu */}
+                    <div className="px-3 py-1">
+                      <PWAInstallButton />
+                    </div>
+                  </div>
+
+                  <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        onLogout();
+                      }}
+                      className="w-full px-3.5 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center gap-2.5 cursor-pointer text-left transition-colors"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>登出系統</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </header>

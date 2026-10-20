@@ -111,11 +111,11 @@ export const CurrentClassBanner: React.FC<CurrentClassBannerProps> = ({
         </div>
 
         {/* Action Controls & Simulator Toggle */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
           {/* Quick Simulation / Preview Mode Toggle */}
-          <div className="flex items-center gap-1.5 bg-slate-800/80 border border-slate-700 rounded-xl px-2.5 py-1 text-xs text-slate-300">
-            <Clock className="w-3.5 h-3.5 text-blue-400" />
-            <span className="text-[11px] text-slate-400">時段：</span>
+          <div className="flex items-center gap-1.5 bg-slate-800/80 border border-slate-700 rounded-xl px-2.5 py-1 text-xs text-slate-300 max-w-full">
+            <Clock className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <span className="text-[11px] text-slate-400 shrink-0">時段：</span>
             <select
               value={simulationMode ? `${simDay}-${simPeriod}` : 'live'}
               onChange={(e) => {
@@ -128,7 +128,7 @@ export const CurrentClassBanner: React.FC<CurrentClassBannerProps> = ({
                   setSimulationMode(true);
                 }
               }}
-              className="bg-transparent text-xs font-semibold text-white focus:outline-hidden cursor-pointer"
+              className="bg-transparent text-xs font-semibold text-white focus:outline-hidden cursor-pointer max-w-[130px] sm:max-w-none truncate"
             >
               <option value="live" className="bg-slate-900 text-white">
                 🔴 即時系統時間 (Live)

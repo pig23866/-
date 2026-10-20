@@ -26,7 +26,6 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   const firstDayOfMonth = new Date(year, month, 1);
   const lastDayOfMonth = new Date(year, month + 1, 0);
 
-  // Day of week for day 1 (0: Sunday, 1: Monday, ...)
   const startDay = firstDayOfMonth.getDay();
   const totalDays = lastDayOfMonth.getDate();
 
@@ -36,7 +35,6 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
   const daysOfWeek = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
 
-  // Map assignments to date strings YYYY-MM-DD
   const assignmentsByDate = new Map<string, Assignment[]>();
   assignments.forEach((asg) => {
     try {
@@ -59,12 +57,12 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     .padStart(2, '0')}-${new Date().getDate().toString().padStart(2, '0')}`;
 
   return (
-    <div id="calendar-view" className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-4 sm:p-6">
+    <div id="calendar-view" className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xs p-4 sm:p-6 transition-colors">
       {/* Calendar Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 mb-4 border-b border-slate-100">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 mb-4 border-b border-slate-100 dark:border-slate-800">
         <div className="flex items-center gap-2">
-          <CalendarIcon className="w-5 h-5 text-blue-600" />
-          <h3 className="text-base font-bold text-slate-800">
+          <CalendarIcon className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+          <h3 className="text-base font-bold text-slate-800 dark:text-white">
             {year} 年 {month + 1} 月 作業繳交行事曆
           </h3>
         </div>
@@ -73,15 +71,15 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           <button
             type="button"
             onClick={goToToday}
-            className="px-3 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+            className="px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
           >
             返回今天
           </button>
-          <div className="flex items-center gap-1 border border-slate-200 rounded-lg p-0.5">
+          <div className="flex items-center gap-1 border border-slate-200 dark:border-slate-700 rounded-lg p-0.5">
             <button
               type="button"
               onClick={prevMonth}
-              className="p-1 hover:bg-slate-100 text-slate-600 rounded cursor-pointer"
+              className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 rounded cursor-pointer"
               title="上個月"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -89,7 +87,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             <button
               type="button"
               onClick={nextMonth}
-              className="p-1 hover:bg-slate-100 text-slate-600 rounded cursor-pointer"
+              className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 rounded cursor-pointer"
               title="下個月"
             >
               <ChevronRight className="w-4 h-4" />
@@ -104,7 +102,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           <div
             key={day}
             className={`text-xs font-semibold py-1.5 ${
-              idx === 0 || idx === 6 ? 'text-rose-500' : 'text-slate-600'
+              idx === 0 || idx === 6 ? 'text-rose-500 dark:text-rose-400' : 'text-slate-600 dark:text-slate-400'
             }`}
           >
             {day}
@@ -116,7 +114,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       <div className="grid grid-cols-7 gap-1 sm:gap-2">
         {/* Leading empty cells */}
         {Array.from({ length: startDay }).map((_, i) => (
-          <div key={`empty-${i}`} className="min-h-[90px] sm:min-h-[110px] p-1 bg-slate-50/40 rounded-xl border border-slate-100/60 opacity-40" />
+          <div key={`empty-${i}`} className="min-h-[90px] sm:min-h-[110px] p-1 bg-slate-50/40 dark:bg-slate-800/20 rounded-xl border border-slate-100/60 dark:border-slate-800/40 opacity-40" />
         ))}
 
         {/* Days of current month */}
@@ -133,14 +131,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               key={dateStr}
               className={`min-h-[90px] sm:min-h-[110px] p-1.5 rounded-xl border transition-all flex flex-col justify-between group ${
                 isToday
-                  ? 'border-blue-400 bg-blue-50/20 ring-1 ring-blue-300'
-                  : 'border-slate-100 bg-white hover:border-slate-300 hover:shadow-2xs'
+                  ? 'border-blue-400 dark:border-blue-500 bg-blue-50/20 dark:bg-blue-950/40 ring-1 ring-blue-300 dark:ring-blue-700'
+                  : 'border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-2xs'
               }`}
             >
               <div className="flex items-center justify-between mb-1">
                 <span
                   className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-semibold ${
-                    isToday ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-700'
+                    isToday ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-700 dark:text-slate-300'
                   }`}
                 >
                   {dayNum}
@@ -150,7 +148,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   <button
                     type="button"
                     onClick={() => onAddNewForDate(dateStr)}
-                    className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-400 hover:text-blue-600 rounded transition-opacity cursor-pointer"
+                    className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded transition-opacity cursor-pointer"
                     title="在該日新增作業"
                   >
                     <Plus className="w-3.5 h-3.5" />
@@ -172,9 +170,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       onClick={() => onSelectAssignment(asg)}
                       className={`px-1.5 py-0.5 rounded text-[11px] font-medium truncate cursor-pointer transition-all border ${
                         isDone
-                          ? 'bg-slate-100 text-slate-500 border-slate-200 line-through'
+                          ? 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 line-through'
                           : isOverdue
-                          ? 'bg-red-100 text-red-800 border-red-200 font-bold'
+                          ? 'bg-red-100 dark:bg-red-950/80 text-red-800 dark:text-red-300 border-red-200 dark:border-red-800 font-bold'
                           : `${subj?.badgeBg || 'bg-blue-50 text-blue-800'} ${
                               subj?.badgeBorder || 'border-blue-200'
                             }`

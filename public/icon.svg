@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="sheet" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f8fafc"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#1e1b4b" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <!-- Background rounded rect -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+
+  <!-- Main Sheet / Assignment Clipboard -->
+  <g filter="url(#shadow)">
+    <!-- Main board -->
+    <rect x="110" y="90" width="292" height="340" rx="32" fill="url(#sheet)"/>
+    
+    <!-- Top clip -->
+    <rect x="186" y="70" width="140" height="42" rx="14" fill="#312e81"/>
+    <circle cx="256" cy="84" r="7" fill="#ffffff" opacity="0.8"/>
+
+    <!-- Header line -->
+    <rect x="156" y="150" width="120" height="16" rx="8" fill="#4f46e5"/>
+    <rect x="290" y="150" width="66" height="16" rx="8" fill="#a5b4fc"/>
+
+    <!-- Task item 1 -->
+    <circle cx="170" cy="204" r="14" fill="#10b981"/>
+    <path d="M165 204 L169 208 L177 199" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="200" y="196" width="156" height="14" rx="7" fill="#64748b"/>
+
+    <!-- Task item 2 -->
+    <circle cx="170" cy="254" r="14" fill="#6366f1"/>
+    <path d="M165 254 L169 258 L177 249" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="200" y="246" width="130" height="14" rx="7" fill="#64748b"/>
+
+    <!-- Task item 3 -->
+    <circle cx="170" cy="304" r="14" fill="#f59e0b"/>
+    <circle cx="170" cy="304" r="4" fill="#ffffff"/>
+    <rect x="200" y="296" width="146" height="14" rx="7" fill="#94a3b8"/>
+
+    <!-- Task item 4 -->
+    <circle cx="170" cy="354" r="14" fill="#e2e8f0"/>
+    <rect x="200" y="346" width="110" height="14" rx="7" fill="#cbd5e1"/>
+
+    <!-- Bottom sparkles badge -->
+    <circle cx="370" cy="390" r="38" fill="#7c3aed"/>
+    <path d="M370 372 L373 384 L385 387 L373 390 L370 402 L367 390 L355 387 L367 384 Z" fill="#ffffff"/>
+  </g>
+</svg>

@@ -3,14 +3,15 @@ import {
   X,
   Plus,
   Trash2,
-  Paperclip,
   Clock,
   Calendar,
   AlertCircle,
   FileText,
+  ChevronDown,
+  ChevronUp,
+  Paperclip,
   CheckCircle2,
-  ExternalLink,
-  Shield,
+  BookOpen,
 } from 'lucide-react';
 import {
   Assignment,
@@ -19,17 +20,18 @@ import {
   AssignmentStatus,
   SubmissionType,
   Subtask,
-  DriveAttachment,
+  AttachmentItem,
+  CourseEntry,
 } from '../types';
-import { SUBMISSION_LABELS } from '../lib/constants';
+import { SUBMISSION_LABELS, PRIORITY_LABELS } from '../lib/constants';
 import { formatDateForInput } from '../lib/dateUtils';
-import { useSecurity } from '../lib/security/SecurityContext';
 
 interface AssignmentModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (assignment: Assignment) => void;
   subjects: Subject[];
+  courses?: CourseEntry[];
   initialData?: Assignment | null;
   prefillData?: {
     title?: string;
@@ -37,9 +39,6 @@ interface AssignmentModalProps {
     notes?: string;
     description?: string;
   } | null;
-  onOpenDrivePicker: () => void;
-  currentPendingAttachments: DriveAttachment[];
-  onRemoveAttachment: (id: string) => void;
 }
 
 export const AssignmentModal: React.FC<AssignmentModalProps> = ({
@@ -47,38 +46,27 @@ export const AssignmentModal: React.FC<AssignmentModalProps> = ({
   onClose,
   onSave,
   subjects,
+  courses = [],
   initialData,
   prefillData,
-  onOpenDrivePicker,
-  currentPendingAttachments,
-  onRemoveAttachment,
 }) => {
   const [title, setTitle] = useState('');
-  const [subjectId, setSubjectId] = useState(subjects[0]?.id || 'math');
+  const [subjectId, setSubjectId] = useState(subjects[0]?.id || 'course-cs-prog');
   const [description, setDescription] = useState('');
   const [deadline, setDeadline] = useState('');
   const [priority, setPriority] = useState<Priority>('medium');
   const [status, setStatus] = useState<AssignmentStatus>('todo');
+
+  // Optional Advanced section state
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [submissionType, setSubmissionType] = useState<SubmissionType>('classroom');
-  const [estimatedMinutes, setEstimatedMinutes] = useState<number>(60);
   const [notes, setNotes] = useState('');
-  const [securityClassification, setSecurityClassification] = useState<'unclassified' | 'confidential' | 'secret'>('unclassified');
-  const [sanitizationWarning, setSanitizationWarning] = useState<string | null>(null);
-
-  const {
-    currentProfile,
-    checkActionAllowed,
-    signAssignment,
-    sanitizeUserInput,
-    recordAction,
-  } = useSecurity();
-
-  // Subtasks
   const [subtasks, setSubtasks] = useState<Subtask[]>([]);
   const [newSubtaskText, setNewSubtaskText] = useState('');
-
-  // Attachments
-  const [attachments, setAttachments] = useState<DriveAttachment[]>([]);
+  const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
+  const [newAttachmentName, setNewAttachmentName] = useState('');
+  const [newAttachmentUrl, setNewAttachmentUrl] = useState('');
+  const [showAddAttachment, setShowAddAttachment] = useState(false);
 
   useEffect(() => {
     if (initialData) {
@@ -86,14 +74,21 @@ export const AssignmentModal: React.FC<AssignmentModalProps> = ({
       setSubjectId(initialData.subjectId);
       setDescription(initialData.description || '');
       setDeadline(initialData.deadline);
-      setPriority(initialData.priority);
-      setStatus(initialData.status);
-      setSubmissionType(initialData.submissionType);
-      setEstimatedMinutes(initialData.estimatedMinutes || 60);
+      setPriority(initialData.priority || 'medium');
+      setStatus(initialData.status || 'todo');
+      setSubmissionType(initialData.submissionType || 'classroom');
       setNotes(initialData.notes || '');
-      setSecurityClassification(initialData.securityClassification || 'unclassified');
       setSubtasks(initialData.subtasks || []);
-      setAttachments(initialData.driveAttachments || []);
+      setAttachments(initialData.attachments || initialData.driveAttachments || []);
+
+      // If existing assignment has subtasks or attachments, auto-expand advanced
+      if ((initialData.subtasks && initialData.subtasks.length > 0) ||
+          (initialData.attachments && initialData.attachments.length > 0) ||
+          (initialData.notes && initialData.notes.trim().length > 0)) {
+        setShowAdvanced(true);
+      } else {
+        setShowAdvanced(false);
+      }
     } else {
       // Default: Tomorrow at 23:59
       const tomorrow = new Date();
@@ -101,32 +96,26 @@ export const AssignmentModal: React.FC<AssignmentModalProps> = ({
       tomorrow.setHours(23, 59, 0, 0);
 
       setTitle(prefillData?.title || '');
-      setSubjectId(prefillData?.subjectId || subjects[0]?.id || 'math');
+      setSubjectId(prefillData?.subjectId || subjects[0]?.id || 'course-cs-prog');
       setDescription(prefillData?.description || '');
       setDeadline(formatDateForInput(tomorrow));
       setPriority('medium');
       setStatus('todo');
       setSubmissionType('classroom');
-      setEstimatedMinutes(60);
       setNotes(prefillData?.notes || '');
-      setSecurityClassification('unclassified');
       setSubtasks([]);
       setAttachments([]);
+      setShowAdvanced(false);
     }
+    setShowAddAttachment(false);
   }, [initialData, prefillData, isOpen, subjects]);
 
-  // Sync any newly added attachments from the drive picker
-  useEffect(() => {
-    if (currentPendingAttachments.length > 0) {
-      setAttachments((prev) => {
-        const ids = new Set(prev.map((a) => a.id));
-        const added = currentPendingAttachments.filter((a) => !ids.has(a.id));
-        return [...prev, ...added];
-      });
-    }
-  }, [currentPendingAttachments]);
-
   if (!isOpen) return null;
+
+  const setQuickDeadline = (hoursFromNow: number) => {
+    const d = new Date(Date.now() + hoursFromNow * 60 * 60 * 1000);
+    setDeadline(formatDateForInput(d));
+  };
 
   const handleAddSubtask = () => {
     if (!newSubtaskText.trim()) return;
@@ -143,180 +132,149 @@ export const AssignmentModal: React.FC<AssignmentModalProps> = ({
     setSubtasks(subtasks.filter((st) => st.id !== id));
   };
 
-  const setQuickDeadline = (hoursFromNow: number) => {
-    const d = new Date(Date.now() + hoursFromNow * 60 * 60 * 1000);
-    setDeadline(formatDateForInput(d));
+  const handleAddAttachment = () => {
+    if (!newAttachmentName.trim()) return;
+    const item: AttachmentItem = {
+      id: `att-${Date.now()}`,
+      name: newAttachmentName.trim(),
+      url: newAttachmentUrl.trim() || '#',
+    };
+    setAttachments([...attachments, item]);
+    setNewAttachmentName('');
+    setNewAttachmentUrl('');
+    setShowAddAttachment(false);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
 
-    // Check ABAC policy before proceeding
-    const accessCheck = checkActionAllowed('WRITE', securityClassification);
-    if (!accessCheck.allowed) {
-      return;
-    }
-
-    // Input Sanitization (Secure SDLC Anti-XSS / Anti-Injection)
-    const { clean: cleanTitle, hadMalicious: badTitle } = sanitizeUserInput(title.trim());
-    const { clean: cleanDesc, hadMalicious: badDesc } = sanitizeUserInput(description.trim());
-    const { clean: cleanNotes, hadMalicious: badNotes } = sanitizeUserInput(notes.trim());
-
-    if (badTitle || badDesc || badNotes) {
-      setSanitizationWarning('🛡️ 輸入驗證攔截：已自動過濾危險腳本字符 (XSS/SQLi 防禦)，落實 Secure SDLC 規範！');
-    }
-
-    const id = initialData?.id || `asg-${Date.now()}`;
-    const baseAssignment: Assignment = {
-      id,
-      title: cleanTitle,
+    const assignmentToSave: Assignment = {
+      id: initialData?.id || `asg-${Date.now()}`,
+      title: title.trim(),
       subjectId,
-      description: cleanDesc,
+      description: description.trim(),
       deadline,
       priority,
       status,
       submissionType,
       subtasks,
+      attachments,
       driveAttachments: attachments,
-      estimatedMinutes: Number(estimatedMinutes) || 0,
-      notes: cleanNotes,
+      estimatedMinutes: initialData?.estimatedMinutes || 60,
+      notes: notes.trim(),
       createdAt: initialData?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      securityClassification,
-      lifecycleStage: initialData ? 'modification' : 'generation',
     };
 
-    const signed = await signAssignment(baseAssignment);
-
-    await recordAction(
-      initialData ? 'ASSIGNMENT_UPDATE' : 'ASSIGNMENT_CREATE',
-      'ASSIGNMENT',
-      id,
-      `${initialData ? '編輯修改' : '建立新增'}作業：[${cleanTitle}]，密級標定：[${securityClassification}]，計算 SHA-256 完整性雜湊並以 HMAC 簽署`
-    );
-
-    onSave(signed);
+    onSave(assignmentToSave);
     onClose();
   };
 
+  // Find selected subject info for display
+  const currentSubject = subjects.find((s) => s.id === subjectId);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
       <div
         id="assignment-modal"
-        className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95"
+        className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-200"
       >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-          <div>
-            <h3 className="text-base font-bold text-slate-900">
-              {initialData ? '編輯作業內容' : '新增作業項目'}
-            </h3>
-            <p className="text-xs text-slate-500">輸入學科、截止日期與步驟要求，自動追蹤繳交期限</p>
+        <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-slate-800/60">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
+              <BookOpen className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                {initialData ? '編輯作業' : '新增作業'}
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                選擇對應課程名稱與截止時間
+              </p>
+            </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+            className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 rounded-xl transition-colors cursor-pointer"
+            aria-label="關閉"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto flex-1 space-y-5">
-          {sanitizationWarning && (
-            <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl text-amber-900 text-xs flex items-center justify-between animate-in fade-in">
-              <span className="font-medium">{sanitizationWarning}</span>
-              <button
-                type="button"
-                onClick={() => setSanitizationWarning(null)}
-                className="text-amber-700 hover:text-amber-900 font-bold ml-2 cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-          )}
-
-          {/* Subject & Title */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                所屬學科 <span className="text-red-500">*</span>
-              </label>
+        {/* Form Body - Simplified & High Efficiency */}
+        <form onSubmit={handleSubmit} className="p-5 overflow-y-auto flex-1 space-y-4">
+          {/* 1. 課程名稱 (下拉選單對應課程名稱) */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              課程名稱 (下拉選單) <span className="text-rose-500">*</span>
+            </label>
+            <div className="relative">
               <select
                 id="modal-subject-select"
                 value={subjectId}
                 onChange={(e) => setSubjectId(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium text-slate-800"
+                className="w-full pl-3.5 pr-8 py-2.5 text-xs sm:text-sm font-semibold bg-slate-50 dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 dark:text-slate-100 cursor-pointer transition-all"
               >
-                {subjects.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.code})
-                  </option>
-                ))}
+                <optgroup label="課表對應課程" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                  {subjects.map((s) => (
+                    <option key={s.id} value={s.id} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                      {s.name} ({s.code})
+                    </option>
+                  ))}
+                </optgroup>
               </select>
-            </div>
-
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                作業名稱 <span className="text-red-500">*</span>
-              </label>
-              <input
-                id="modal-title-input"
-                type="text"
-                required
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="例如：數學第四章習題 P.60-P.65"
-                className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium text-slate-800"
-              />
             </div>
           </div>
 
-          {/* Description */}
+          {/* 2. 作業名稱 */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              作業說明與要求 (可填寫題號、格式規範或注意事項)
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              作業名稱 <span className="text-rose-500">*</span>
             </label>
-            <textarea
-              id="modal-description-input"
-              rows={2}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="詳細說明老師交代的格式、頁數、計算題規定等..."
-              className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 resize-none"
+            <input
+              id="modal-title-input"
+              type="text"
+              required
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="例如：程式上機練習 (一)、課本 P.30 習題"
+              className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium text-slate-800 dark:text-white transition-all"
             />
           </div>
 
-          {/* Deadline with Quick Presets */}
+          {/* 3. 繳交期限 (含快速晶片按鈕) */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-blue-500" />
-                繳交期限 (Deadline) <span className="text-red-500">*</span>
+                繳交期限 <span className="text-rose-500">*</span>
               </label>
-              <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
-                <span>快速設定:</span>
-                <button
-                  type="button"
-                  onClick={() => setQuickDeadline(6)}
-                  className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-slate-600 transition-colors"
-                >
-                  6小時後
-                </button>
+              <div className="flex items-center gap-1 text-[11px]">
+                <span className="text-slate-400 hidden sm:inline">快捷:</span>
                 <button
                   type="button"
                   onClick={() => setQuickDeadline(24)}
-                  className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-slate-600 transition-colors"
+                  className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-md transition-colors cursor-pointer"
                 >
-                  明天此時
+                  明天
                 </button>
                 <button
                   type="button"
                   onClick={() => setQuickDeadline(72)}
-                  className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-slate-600 transition-colors"
+                  className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-md transition-colors cursor-pointer"
                 >
                   3天後
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQuickDeadline(168)}
+                  className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-md transition-colors cursor-pointer"
+                >
+                  下週
                 </button>
               </div>
             </div>
@@ -326,230 +284,283 @@ export const AssignmentModal: React.FC<AssignmentModalProps> = ({
               required
               value={deadline}
               onChange={(e) => setDeadline(e.target.value)}
-              className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium text-slate-800"
+              className="w-full px-3.5 py-2 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium text-slate-800 dark:text-white transition-all"
             />
           </div>
 
-          {/* Priority, Status, Submission Type, Security Classification */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">優先級</label>
-              <select
-                id="modal-priority-select"
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as Priority)}
-                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-medium"
-              >
-                <option value="high">🔥 高優先 (重大作業/考試)</option>
-                <option value="medium">⚡ 中等 (一般平日作業)</option>
-                <option value="low">🌱 低優先 (自修或長程)</option>
-              </select>
-            </div>
+          {/* 4. 作業內容與備註說明 (簡化單一欄位) */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              作業說明 / 題目規範 (選填)
+            </label>
+            <textarea
+              id="modal-description-input"
+              rows={3}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="填寫題號範圍、評分要求、上課筆記或注意事項..."
+              className="w-full px-3.5 py-2 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 dark:text-white resize-none transition-all"
+            />
+          </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">目前狀態</label>
-              <select
-                id="modal-status-select"
-                value={status}
-                onChange={(e) => setStatus(e.target.value as AssignmentStatus)}
-                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-medium"
+          {/* 5. 優先級 (直覺晶片式單選按鈕) */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              優先級
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setPriority('high')}
+                className={`py-2 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                  priority === 'high'
+                    ? 'bg-rose-50 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-700 ring-2 ring-rose-500/20'
+                    : 'bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                }`}
               >
-                <option value="todo">待辦 (未開始)</option>
-                <option value="in_progress">進行中</option>
-                <option value="completed">已完成 (待交)</option>
-                <option value="submitted">已繳交送出</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">繳交方式</label>
-              <select
-                id="modal-submission-select"
-                value={submissionType}
-                onChange={(e) => setSubmissionType(e.target.value as SubmissionType)}
-                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-medium"
+                <span>🔥</span>
+                <span>高優先</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPriority('medium')}
+                className={`py-2 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                  priority === 'medium'
+                    ? 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700 ring-2 ring-amber-500/20'
+                    : 'bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                }`}
               >
-                {Object.entries(SUBMISSION_LABELS).map(([key, info]) => (
-                  <option key={key} value={key}>
-                    {info.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1">
-                <Shield className="w-3.5 h-3.5 text-blue-500" />
-                安全密級標定
-              </label>
-              <select
-                id="modal-security-classification-select"
-                value={securityClassification}
-                onChange={(e) => setSecurityClassification(e.target.value as any)}
-                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-medium"
+                <span>⚡</span>
+                <span>中等</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPriority('low')}
+                className={`py-2 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                  priority === 'low'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700 ring-2 ring-emerald-500/20'
+                    : 'bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                }`}
               >
-                <option value="unclassified">普通件 (Unclassified)</option>
-                <option value="confidential">機密件 (Confidential)</option>
-                <option value="secret">極機密件 (Secret)</option>
-              </select>
+                <span>🌱</span>
+                <span>低優先</span>
+              </button>
             </div>
           </div>
 
-          {/* Subtasks / Checklist */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              步驟拆解清單 (Checklist)
-            </label>
-            <div className="flex gap-2 mb-2">
-              <input
-                type="text"
-                value={newSubtaskText}
-                onChange={(e) => setNewSubtaskText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleAddSubtask();
-                  }
-                }}
-                placeholder="輸入單一工作步驟 (例如：查閱文獻、撰寫草稿、檢查排版)..."
-                className="flex-1 px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-blue-500"
-              />
-              <button
-                type="button"
-                onClick={handleAddSubtask}
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-xl flex items-center gap-1 transition-colors cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                新增步驟
-              </button>
+          {/* 6. 目前狀態 (編輯時快速切換) */}
+          {initialData && (
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                目前狀態
+              </label>
+              <div className="grid grid-cols-4 gap-1.5 text-xs">
+                {(['todo', 'in_progress', 'completed', 'submitted'] as AssignmentStatus[]).map((st) => {
+                  const labels: Record<AssignmentStatus, string> = {
+                    todo: '待辦',
+                    in_progress: '進行中',
+                    completed: '已完成',
+                    submitted: '已繳交',
+                  };
+                  const isCur = status === st;
+                  return (
+                    <button
+                      key={st}
+                      type="button"
+                      onClick={() => setStatus(st)}
+                      className={`py-1.5 rounded-lg font-medium border text-center transition-all cursor-pointer ${
+                        isCur
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                          : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      {labels[st]}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
+          )}
 
-            {subtasks.length > 0 && (
-              <div className="space-y-1.5 bg-slate-50 p-2 rounded-xl border border-slate-100">
-                {subtasks.map((st, idx) => (
-                  <div
-                    key={st.id}
-                    className="flex items-center justify-between gap-2 px-2 py-1 bg-white rounded-lg border border-slate-200/80 text-xs"
+          {/* 7. 進階選項折疊區塊 (不干擾一般操作，需要時展開) */}
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="flex items-center justify-between w-full text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 py-1 transition-colors cursor-pointer"
+            >
+              <span>進階設定 (繳交方式、步驟清單、參考連結)</span>
+              {showAdvanced ? (
+                <ChevronUp className="w-4 h-4" />
+              ) : (
+                <ChevronDown className="w-4 h-4" />
+              )}
+            </button>
+
+            {showAdvanced && (
+              <div className="mt-3 space-y-4 bg-slate-50/80 dark:bg-slate-800/40 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800 animate-in fade-in duration-150">
+                {/* 繳交方式 */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    繳交方式
+                  </label>
+                  <select
+                    value={submissionType}
+                    onChange={(e) => setSubmissionType(e.target.value as SubmissionType)}
+                    className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200"
                   >
-                    <span className="text-slate-500 font-mono text-[11px]">{idx + 1}.</span>
-                    <span className="flex-1 text-slate-800">{st.title}</span>
+                    {Object.entries(SUBMISSION_LABELS).map(([key, info]) => (
+                      <option key={key} value={key}>
+                        {info.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 步驟拆解清單 */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    步驟拆解清單 (Checklist)
+                  </label>
+                  <div className="flex gap-2 mb-2">
+                    <input
+                      type="text"
+                      value={newSubtaskText}
+                      onChange={(e) => setNewSubtaskText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddSubtask();
+                        }
+                      }}
+                      placeholder="輸入子步驟..."
+                      className="flex-1 px-3 py-1.5 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-white"
+                    />
                     <button
                       type="button"
-                      onClick={() => handleRemoveSubtask(st.id)}
-                      className="text-slate-400 hover:text-red-500 p-0.5 cursor-pointer"
+                      onClick={handleAddSubtask}
+                      className="px-2.5 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-xs font-medium rounded-lg flex items-center gap-1 cursor-pointer"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Plus className="w-3 h-3" />
+                      加入
                     </button>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Google Drive Attachments */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-                <Paperclip className="w-3.5 h-3.5 text-blue-500" />
-                Google 雲端硬碟附件
-              </label>
-              <button
-                type="button"
-                onClick={onOpenDrivePicker}
-                className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100/70 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-              >
-                <Plus className="w-3 h-3" />
-                從 Google 雲端新增或上傳檔案
-              </button>
-            </div>
-
-            {attachments.length > 0 ? (
-              <div className="space-y-1.5 bg-blue-50/30 p-2.5 rounded-xl border border-blue-100">
-                {attachments.map((att) => (
-                  <div
-                    key={att.id}
-                    className="flex items-center justify-between gap-2 px-3 py-1.5 bg-white rounded-xl border border-slate-200 text-xs shadow-2xs"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <FileText className="w-4 h-4 text-blue-500 shrink-0" />
-                      <span className="font-medium text-slate-800 truncate">{att.name}</span>
-                      {att.size && <span className="text-[11px] text-slate-400">({att.size})</span>}
+                  {subtasks.length > 0 && (
+                    <div className="space-y-1">
+                      {subtasks.map((st, idx) => (
+                        <div
+                          key={st.id}
+                          className="flex items-center justify-between gap-2 px-2.5 py-1 bg-white dark:bg-slate-800 rounded-lg border border-slate-200/70 dark:border-slate-700 text-xs"
+                        >
+                          <span className="text-slate-400 font-mono text-[10px]">{idx + 1}.</span>
+                          <span className="flex-1 text-slate-800 dark:text-slate-200">{st.title}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveSubtask(st.id)}
+                            className="text-slate-400 hover:text-red-500 p-0.5 cursor-pointer"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <a
-                        href={att.webViewLink}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-blue-600 hover:text-blue-800 p-1"
-                        title="開啟檔案"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </a>
+                  )}
+                </div>
+
+                {/* 外部連結 */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                      <Paperclip className="w-3 h-3 text-blue-500" />
+                      參考連結附件
+                    </label>
+                    {!showAddAttachment && (
                       <button
                         type="button"
-                        onClick={() => {
-                          setAttachments(attachments.filter((a) => a.id !== att.id));
-                          onRemoveAttachment(att.id);
-                        }}
-                        className="text-slate-400 hover:text-red-500 p-1 cursor-pointer"
-                        title="移除附件"
+                        onClick={() => setShowAddAttachment(true)}
+                        className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Plus className="w-3 h-3" />
+                        新增連結
                       </button>
-                    </div>
+                    )}
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="p-3 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-400">
-                尚未附加雲端硬碟檔案，點擊上方按鈕挑選作業報告、投影片或講義
+                  {showAddAttachment && (
+                    <div className="p-2.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2 mb-2">
+                      <input
+                        type="text"
+                        placeholder="附件名稱 (例如：第四章講義筆記)"
+                        value={newAttachmentName}
+                        onChange={(e) => setNewAttachmentName(e.target.value)}
+                        className="w-full px-2.5 py-1 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-white"
+                      />
+                      <input
+                        type="url"
+                        placeholder="網址 (例如：https://...)"
+                        value={newAttachmentUrl}
+                        onChange={(e) => setNewAttachmentUrl(e.target.value)}
+                        className="w-full px-2.5 py-1 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-white"
+                      />
+                      <div className="flex justify-end gap-1.5 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setShowAddAttachment(false)}
+                          className="px-2 py-0.5 text-xs text-slate-500 hover:bg-slate-100 rounded cursor-pointer"
+                        >
+                          取消
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleAddAttachment}
+                          className="px-2.5 py-0.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded cursor-pointer"
+                        >
+                          加入
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {attachments.length > 0 && (
+                    <div className="space-y-1">
+                      {attachments.map((att) => (
+                        <div
+                          key={att.id}
+                          className="flex items-center justify-between gap-2 px-2.5 py-1 bg-white dark:bg-slate-800 rounded-lg border border-slate-200/70 dark:border-slate-700 text-xs"
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <FileText className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                            <span className="truncate">{att.name}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setAttachments(attachments.filter((a) => a.id !== att.id))}
+                            className="text-slate-400 hover:text-red-500 p-0.5 cursor-pointer"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
-          </div>
-
-          {/* Notes & Estimated Time */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                預估完成所需時間 (分鐘)
-              </label>
-              <input
-                type="number"
-                min="0"
-                step="15"
-                value={estimatedMinutes}
-                onChange={(e) => setEstimatedMinutes(Number(e.target.value))}
-                placeholder="60"
-                className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-blue-500 text-slate-800 font-medium"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">備忘註記</label>
-              <input
-                type="text"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="例如：需找同學小組共同檢討"
-                className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-blue-500 text-slate-800"
-              />
-            </div>
           </div>
 
           {/* Footer Buttons */}
-          <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2.5">
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2.5">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
             >
               取消
             </button>
             <button
               id="modal-submit-btn"
               type="submit"
-              className="px-5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs shadow-blue-200 transition-colors cursor-pointer"
+              className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 active:scale-98 rounded-xl shadow-xs shadow-blue-500/20 transition-all cursor-pointer"
             >
-              {initialData ? '儲存變更' : '新增至作業清單'}
+              {initialData ? '儲存變更' : '確認新增作業'}
             </button>
           </div>
         </form>

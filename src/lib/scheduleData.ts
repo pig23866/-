@@ -1,4 +1,6 @@
 import { SchedulePeriod, CourseEntry, CurrentClassStatus } from '../types';
+import { loadWithIntegrity, saveWithIntegrity } from './integrity';
+import { logAuditEvent } from './auditLogger';
 
 export const SCHEDULE_HEADER_INFO = {
   school: '陸軍軍官學校',
@@ -668,29 +670,28 @@ export const DEFAULT_COURSES: CourseEntry[] = [
 const SCHEDULE_STORAGE_KEY = 'hw_tracker_schedule_courses_v1';
 
 export function loadStoredSchedule(): CourseEntry[] {
-  try {
-    const raw = localStorage.getItem(SCHEDULE_STORAGE_KEY);
-    if (!raw) {
-      localStorage.setItem(SCHEDULE_STORAGE_KEY, JSON.stringify(DEFAULT_COURSES));
-      return DEFAULT_COURSES;
+  return loadWithIntegrity<CourseEntry[]>(
+    SCHEDULE_STORAGE_KEY,
+    DEFAULT_COURSES,
+    (details) => {
+      logAuditEvent({
+        category: 'security',
+        action: '完整性自動修復',
+        level: 'security',
+        actor: { username: 'System', displayName: '安全保護引擎', role: 'admin' },
+        target: SCHEDULE_STORAGE_KEY,
+        details,
+      });
     }
-    return JSON.parse(raw);
-  } catch (e) {
-    console.error('Failed to load schedule from storage:', e);
-    return DEFAULT_COURSES;
-  }
+  );
 }
 
 export function saveStoredSchedule(courses: CourseEntry[]): void {
-  try {
-    localStorage.setItem(SCHEDULE_STORAGE_KEY, JSON.stringify(courses));
-  } catch (e) {
-    console.error('Failed to save schedule to storage:', e);
-  }
+  saveWithIntegrity(SCHEDULE_STORAGE_KEY, courses);
 }
 
 export function resetStoredSchedule(): CourseEntry[] {
-  localStorage.setItem(SCHEDULE_STORAGE_KEY, JSON.stringify(DEFAULT_COURSES));
+  saveWithIntegrity(SCHEDULE_STORAGE_KEY, DEFAULT_COURSES);
   return DEFAULT_COURSES;
 }
 

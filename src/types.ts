@@ -22,15 +22,15 @@ export interface Subtask {
   isCompleted: boolean;
 }
 
-export interface DriveAttachment {
+export interface AttachmentItem {
   id: string;
   name: string;
-  mimeType: string;
-  webViewLink: string;
-  iconLink?: string;
-  thumbnailLink?: string;
+  url: string;
   size?: string;
 }
+
+// Backward-compatibility alias
+export type DriveAttachment = AttachmentItem;
 
 export interface Assignment {
   id: string;
@@ -42,21 +42,14 @@ export interface Assignment {
   status: AssignmentStatus;
   submissionType: SubmissionType;
   subtasks: Subtask[];
-  driveAttachments: DriveAttachment[];
+  driveAttachments?: AttachmentItem[];
+  attachments?: AttachmentItem[];
   estimatedMinutes?: number;
-  reminderMinutesBefore?: number; // e.g. 60 (1 hour before), 1440 (1 day before)
+  reminderMinutesBefore?: number;
   reminderTriggered?: boolean;
   notes?: string;
   createdAt: string;
   updatedAt: string;
-  // 資安生命週期屬性
-  securityClassification?: 'unclassified' | 'confidential' | 'secret'; // 密級：普通件 / 機密 / 極機密
-  integrityHash?: string; // SHA-256 完整性雜湊
-  digitalSignature?: string; // HMAC 數位簽章戳記 (不可否認性)
-  encryptionStatus?: 'plaintext' | 'aes_256_gcm'; // 靜態資料加密狀態
-  keyVersion?: number; // 使用之加密金鑰版本
-  lifecycleStage?: 'generation' | 'access' | 'modification' | 'transit' | 'storage' | 'destruction'; // 目前生命週期階段
-  signedBy?: string; // 簽章人
 }
 
 export type UrgencyLevel = 'overdue' | 'today' | 'tomorrow' | 'soon' | 'normal' | 'done';
@@ -72,7 +65,7 @@ export interface UrgencyInfo {
   borderClass: string;
 }
 
-export type ViewMode = 'list' | 'board' | 'calendar' | 'subjects' | 'schedule' | 'security';
+export type ViewMode = 'list' | 'board' | 'calendar' | 'subjects' | 'schedule';
 
 // Timetable / Schedule Types
 export interface SchedulePeriod {
@@ -108,3 +101,66 @@ export interface CurrentClassStatus {
   isSimulation: boolean;
   simulatedTimeStr?: string;
 }
+
+// Authentication & Role Types
+export type UserRole = 'admin' | 'user';
+
+export interface AppUser {
+  username: string; // '98210' | 'Admin' | custom
+  displayName: string;
+  role: UserRole;
+  passwordHash: string; // bcrypt hash
+  createdAt?: string;
+  lastLoginAt?: string;
+}
+
+export interface SessionUser {
+  username: string;
+  displayName: string;
+  role: UserRole;
+}
+
+// Audit Log Types (日誌系統 - 僅管理員可查看)
+export type LogLevel = 'info' | 'warn' | 'error' | 'security';
+export type LogCategory = 'auth' | 'assignment' | 'schedule' | 'backup' | 'security' | 'user';
+
+export interface AuditLogActor {
+  username: string;
+  displayName: string;
+  role: UserRole;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  timestamp: string; // ISO 8601 string
+  category: LogCategory;
+  action: string;
+  level: LogLevel;
+  actor: AuditLogActor;
+  target?: string;
+  details: string;
+  metadata?: Record<string, unknown>;
+  hash: string; // Cryptographic integrity hash (SHA-256)
+}
+
+// Backup & Restore Types (備份與復原系統：作業備份 & 課表備份)
+export interface AssignmentsBackupPayload {
+  version: string;
+  type: 'assignments_backup';
+  exportedAt: string;
+  exportedBy: string;
+  assignmentCount: number;
+  assignments: Assignment[];
+  checksum: string;
+}
+
+export interface ScheduleBackupPayload {
+  version: string;
+  type: 'schedule_backup';
+  exportedAt: string;
+  exportedBy: string;
+  courseCount: number;
+  courses: CourseEntry[];
+  checksum: string;
+}
+

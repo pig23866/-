@@ -1,30 +1,32 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { User } from 'firebase/auth';
 import {
   Assignment,
   Subject,
   ViewMode,
   AssignmentStatus,
-  DriveAttachment,
   CourseEntry,
+  SessionUser,
 } from './types';
 import { DEFAULT_SUBJECTS } from './lib/constants';
 import {
   loadStoredAssignments,
   saveStoredAssignments,
+  clearAllStoredAssignments,
   loadStoredSubjects,
   saveStoredSubjects,
-  exportAssignmentsJSON,
 } from './lib/storage';
 import {
   loadStoredSchedule,
   saveStoredSchedule,
-  DEFAULT_COURSES,
 } from './lib/scheduleData';
-import { getInitialAssignments } from './lib/initialData';
+import {
+  loadCurrentSession,
+  logoutSession,
+} from './lib/auth';
+import { logAuditEvent } from './lib/auditLogger';
 import { getUrgencyInfo } from './lib/dateUtils';
-import { initAuth, googleSignIn, logout } from './lib/auth';
 import { sendBrowserNotification, playChime } from './lib/notifications';
+import { getSampleDemoAssignments } from './lib/initialData';
 
 import { Navbar } from './components/Navbar';
 import { DeadlineAlertBanner } from './components/DeadlineAlertBanner';
@@ -36,33 +38,44 @@ import { AssignmentCard } from './components/AssignmentCard';
 import { BoardView } from './components/BoardView';
 import { CalendarView } from './components/CalendarView';
 import { SubjectOverviewView } from './components/SubjectOverviewView';
-import { SecurityLifecycleCenter } from './components/SecurityLifecycleCenter';
 import { AssignmentModal } from './components/AssignmentModal';
-import { DrivePickerModal } from './components/DrivePickerModal';
 import { ConfirmationModal } from './components/ConfirmationModal';
-import { SecurityProvider, useSecurity } from './lib/security/SecurityContext';
-import { SecurityStatusBar } from './components/SecurityStatusBar';
-import { AuditDrawer } from './components/AuditDrawer';
-import { AccessDeniedModal } from './components/AccessDeniedModal';
+import { LoginView } from './components/LoginView';
+import { ChangePasswordModal } from './components/ChangePasswordModal';
+import { UserManagementModal } from './components/UserManagementModal';
+import { AuditLogModal } from './components/AuditLogModal';
+import { BackupRestoreModal } from './components/BackupRestoreModal';
 
 import {
   Inbox,
-  Sparkles,
   Plus,
-  ArrowRight,
   BookOpen,
-  Filter,
 } from 'lucide-react';
 
-function AppContent() {
-  const {
-    isAuditDrawerOpen,
-    setIsAuditDrawerOpen,
-    generateEncryptedBackup,
-    restoreEncryptedBackup,
-  } = useSecurity();
+export default function App() {
+  // Theme State (Dark mode toggle support via CSS & Tailwind)
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    const saved = localStorage.getItem('theme_mode');
+    if (saved) return saved === 'dark';
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
 
-  const restoreFileInputRef = React.useRef<HTMLInputElement>(null);
+  // Apply dark class to <html> element
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    localStorage.setItem('theme_mode', isDarkMode ? 'dark' : 'light');
+  }, [isDarkMode]);
+
+  // Authentication & Role State (訪客不能存取內容需要登入)
+  const [currentUser, setCurrentUser] = useState<SessionUser | null>(() => loadCurrentSession());
+  const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
+  const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
+  const [isAuditLogModalOpen, setIsAuditLogModalOpen] = useState(false);
+  const [isBackupRestoreModalOpen, setIsBackupRestoreModalOpen] = useState(false);
 
   // Assignments & Subjects state
   const [assignments, setAssignments] = useState<Assignment[]>(() => loadStoredAssignments());
@@ -76,11 +89,6 @@ function AppContent() {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [sortBy, setSortBy] = useState<'deadline' | 'priority' | 'subject'>('deadline');
   const [isUrgentFilterActive, setIsUrgentFilterActive] = useState(false);
-
-  // Authentication State
-  const [user, setUser] = useState<User | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isSigningIn, setIsSigningIn] = useState(false);
 
   // Notification State
   const [notificationGranted, setNotificationGranted] = useState<boolean>(() => {
@@ -98,10 +106,6 @@ function AppContent() {
   } | null>(null);
 
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
-
-  const [isDrivePickerOpen, setIsDrivePickerOpen] = useState(false);
-  const [targetAssignmentIdForDrive, setTargetAssignmentIdForDrive] = useState<string | null>(null);
-  const [pendingDriveAttachments, setPendingDriveAttachments] = useState<DriveAttachment[]>([]);
 
   // Confirmation Modal
   const [confirmConfig, setConfirmConfig] = useState<{
@@ -133,26 +137,10 @@ function AppContent() {
     saveStoredSchedule(courses);
   }, [courses]);
 
-  // Initialize Firebase Auth
-  useEffect(() => {
-    const unsubscribe = initAuth(
-      (currentUser) => {
-        setUser(currentUser);
-        setIsAuthenticated(true);
-      },
-      () => {
-        setUser(null);
-        setIsAuthenticated(false);
-      }
-    );
-
-    return () => {
-      if (typeof unsubscribe === 'function') unsubscribe();
-    };
-  }, []);
-
   // Periodic automatic deadline reminder engine (runs every 60 seconds)
   useEffect(() => {
+    if (!currentUser) return;
+
     const checkDeadlines = () => {
       const now = new Date().getTime();
       assignments.forEach((asg) => {
@@ -161,7 +149,6 @@ function AppContent() {
         const dueTime = new Date(asg.deadline).getTime();
         const diffHours = (dueTime - now) / (1000 * 60 * 60);
 
-        // If due within 2 hours and not yet triggered
         if (diffHours > 0 && diffHours <= 2 && !asg.reminderTriggered) {
           sendBrowserNotification(
             `作業期限提醒：${asg.title}`,
@@ -169,7 +156,6 @@ function AppContent() {
           );
           playChime('urgent');
 
-          // Mark as triggered in state
           setAssignments((prev) =>
             prev.map((a) => (a.id === asg.id ? { ...a, reminderTriggered: true } : a))
           );
@@ -180,39 +166,7 @@ function AppContent() {
     checkDeadlines();
     const interval = setInterval(checkDeadlines, 60000);
     return () => clearInterval(interval);
-  }, [assignments]);
-
-  // Auth Handlers
-  const handleSignIn = async () => {
-    setIsSigningIn(true);
-    try {
-      const result = await googleSignIn();
-      if (result) {
-        setUser(result.user);
-        setIsAuthenticated(true);
-      }
-    } catch (err: any) {
-      const isUserCancelled =
-        err?.code === 'auth/popup-closed-by-user' ||
-        err?.code === 'auth/cancelled-popup-request' ||
-        err?.code === 'auth/user-cancelled' ||
-        (typeof err?.message === 'string' &&
-          (err.message.includes('popup-closed-by-user') ||
-            err.message.includes('cancelled-popup-request')));
-
-      if (!isUserCancelled) {
-        console.error('Google Sign In Error:', err);
-      }
-    } finally {
-      setIsSigningIn(false);
-    }
-  };
-
-  const handleSignOut = async () => {
-    await logout();
-    setUser(null);
-    setIsAuthenticated(false);
-  };
+  }, [assignments, currentUser]);
 
   // Subject Counts Map
   const subjectCounts = useMemo(() => {
@@ -231,12 +185,10 @@ function AppContent() {
   const filteredAssignments = useMemo(() => {
     return assignments
       .filter((asg) => {
-        // Subject Filter
         if (selectedSubjectId && asg.subjectId !== selectedSubjectId) {
           return false;
         }
 
-        // Status Filter
         if (statusFilter === 'pending' && (asg.status === 'completed' || asg.status === 'submitted')) {
           return false;
         }
@@ -244,7 +196,6 @@ function AppContent() {
           return false;
         }
 
-        // Urgent Filter
         if (isUrgentFilterActive) {
           const urgency = getUrgencyInfo(asg.deadline, asg.status);
           if (urgency.level !== 'overdue' && urgency.level !== 'today') {
@@ -252,16 +203,12 @@ function AppContent() {
           }
         }
 
-        // Search Query
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase();
           const matchesTitle = asg.title.toLowerCase().includes(q);
-          const matchesDesc = asg.description.toLowerCase().includes(q);
+          const matchesDesc = asg.description?.toLowerCase().includes(q) || false;
           const matchesNotes = asg.notes?.toLowerCase().includes(q) || false;
-          const matchesAttachment = asg.driveAttachments.some((att) =>
-            att.name.toLowerCase().includes(q)
-          );
-          if (!matchesTitle && !matchesDesc && !matchesNotes && !matchesAttachment) {
+          if (!matchesTitle && !matchesDesc && !matchesNotes) {
             return false;
           }
         }
@@ -270,7 +217,6 @@ function AppContent() {
       })
       .sort((a, b) => {
         if (sortBy === 'deadline') {
-          // Incompleted items first, then sorted by deadline
           const aDone = a.status === 'completed' || a.status === 'submitted';
           const bDone = b.status === 'completed' || b.status === 'submitted';
           if (aDone !== bDone) return aDone ? 1 : -1;
@@ -292,6 +238,8 @@ function AppContent() {
 
   // Handlers for Assignment operations
   const handleSaveAssignment = (assignmentToSave: Assignment) => {
+    const isEditing = assignments.some((a) => a.id === assignmentToSave.id);
+
     setAssignments((prev) => {
       const index = prev.findIndex((a) => a.id === assignmentToSave.id);
       if (index >= 0) {
@@ -301,8 +249,20 @@ function AppContent() {
       }
       return [assignmentToSave, ...prev];
     });
+
+    if (currentUser) {
+      logAuditEvent({
+        category: 'assignment',
+        action: isEditing ? '編輯作業' : '新增作業',
+        actor: currentUser,
+        target: assignmentToSave.title,
+        details: isEditing
+          ? `更新了作業「${assignmentToSave.title}」之詳細內容或繳交期限。`
+          : `建立了新作業「${assignmentToSave.title}」，截止期限：${assignmentToSave.deadline}。`,
+      });
+    }
+
     setEditingAssignment(null);
-    setPendingDriveAttachments([]);
   };
 
   const handleDeleteAssignment = (id: string) => {
@@ -316,15 +276,75 @@ function AppContent() {
       isDestructive: true,
       onConfirm: () => {
         setAssignments((prev) => prev.filter((a) => a.id !== id));
+        if (currentUser) {
+          logAuditEvent({
+            category: 'assignment',
+            action: '刪除作業',
+            level: 'warn',
+            actor: currentUser,
+            target: target.title,
+            details: `刪除了作業「${target.title}」。`,
+          });
+        }
         setConfirmConfig((c) => ({ ...c, isOpen: false }));
       },
     });
   };
 
+  // Clear all assignments (清空作業清單)
+  const handleClearAllAssignments = () => {
+    if (assignments.length === 0) {
+      setConfirmConfig({
+        isOpen: true,
+        title: '作業清單目前已是空的',
+        message: '作業清單內目前無任何項目，您可以點擊「新增作業」建立新作業。',
+        isDestructive: false,
+        onConfirm: () => {
+          setConfirmConfig((c) => ({ ...c, isOpen: false }));
+        },
+      });
+      return;
+    }
+
+    const count = assignments.length;
+    setConfirmConfig({
+      isOpen: true,
+      title: '確認清空所有作業清單？',
+      message: `確定要清空目前全部 ${count} 筆作業嗎？清空後作業清單將還原為空白狀態。`,
+      isDestructive: true,
+      onConfirm: () => {
+        clearAllStoredAssignments();
+        setAssignments([]);
+        setSelectedSubjectId(null);
+        if (currentUser) {
+          logAuditEvent({
+            category: 'assignment',
+            action: '清空作業清單',
+            level: 'warn',
+            actor: currentUser,
+            details: `執行清空全部作業，共清除了 ${count} 筆作業項目。`,
+          });
+        }
+        setConfirmConfig((c) => ({ ...c, isOpen: false }));
+        playChime('info');
+      },
+    });
+  };
+
   const handleStatusChange = (id: string, newStatus: AssignmentStatus) => {
+    const target = assignments.find((a) => a.id === id);
     setAssignments((prev) =>
       prev.map((a) => (a.id === id ? { ...a, status: newStatus, updatedAt: new Date().toISOString() } : a))
     );
+    if (currentUser && target) {
+      logAuditEvent({
+        category: 'assignment',
+        action: '變更作業狀態',
+        actor: currentUser,
+        target: target.title,
+        details: `作業「${target.title}」狀態變更為「${newStatus}」。`,
+      });
+    }
   };
 
   const handleToggleSubtask = (assignmentId: string, subtaskId: string) => {
@@ -342,86 +362,18 @@ function AppContent() {
     );
   };
 
-  // Open Drive picker for an existing assignment or currently open modal
-  const handleOpenDrivePicker = (assignmentId?: string) => {
-    if (assignmentId) {
-      setTargetAssignmentIdForDrive(assignmentId);
-    } else {
-      setTargetAssignmentIdForDrive(null);
-    }
-    setIsDrivePickerOpen(true);
-  };
-
-  const handleDriveFileSelected = (attachment: DriveAttachment) => {
-    if (targetAssignmentIdForDrive) {
-      // Adding directly to existing card
-      setAssignments((prev) =>
-        prev.map((a) => {
-          if (a.id !== targetAssignmentIdForDrive) return a;
-          const exists = a.driveAttachments.some((att) => att.id === attachment.id);
-          if (exists) return a;
-          return {
-            ...a,
-            driveAttachments: [...a.driveAttachments, attachment],
-            updatedAt: new Date().toISOString(),
-          };
-        })
-      );
-      setTargetAssignmentIdForDrive(null);
-    } else {
-      // Adding to the currently editing modal
-      setPendingDriveAttachments((prev) => [...prev, attachment]);
-    }
-  };
-
-  // Reset to initial demo data
-  const handleResetData = () => {
-    setConfirmConfig({
-      isOpen: true,
-      title: '重設為預設示範作業？',
-      message: '這將會清除您目前自訂的所有作業，並載入各學科示範範本。',
-      isDestructive: false,
-      onConfirm: () => {
-        const fresh = getInitialAssignments();
-        setAssignments(fresh);
-        setSubjects(DEFAULT_SUBJECTS);
-        setConfirmConfig((c) => ({ ...c, isOpen: false }));
-        playChime('info');
-      },
-    });
-  };
-
   const handleQuickAddFromCourse = (courseName: string, classroom: string, teacher: string) => {
-    let matchedSubjectId = 'cs';
-    const name = courseName.toLowerCase();
-    if (name.includes('數位電路') || name.includes('資訊') || name.includes('計算機')) {
-      matchedSubjectId = 'cs';
-    } else if (name.includes('英文')) {
-      matchedSubjectId = 'english';
-    } else if (name.includes('憲法') || name.includes('立國精神') || name.includes('通識')) {
-      matchedSubjectId = 'politics';
-    } else if (name.includes('車輛') || name.includes('機械')) {
-      matchedSubjectId = 'mechanics';
-    } else if (
-      name.includes('軍事倫理') ||
-      name.includes('教練') ||
-      name.includes('體育') ||
-      name.includes('體能') ||
-      name.includes('裝備')
-    ) {
-      matchedSubjectId = 'military';
-    } else if (name.includes('社團')) {
-      matchedSubjectId = 'arts';
-    } else {
-      matchedSubjectId = subjects[0]?.id || 'other';
-    }
+    const cleanName = courseName.trim();
+    const found = subjects.find(
+      (s) => s.name === cleanName || cleanName.includes(s.name) || s.name.includes(cleanName)
+    );
+    const matchedSubjectId = found ? found.id : (subjects[0]?.id || 'course-cs-prog');
 
     setEditingAssignment(null);
-    setPendingDriveAttachments([]);
     setPrefillAssignmentData({
-      title: `${courseName} - 課堂隨堂作業`,
+      title: `${courseName} - 隨堂作業`,
       subjectId: matchedSubjectId,
-      description: `於 ${classroom} 上課指派之隨堂作業 / 預習進度`,
+      description: `於 ${classroom} 上課指派之隨堂作業（授課教官/老師：${teacher}）`,
       notes: `授課教官/老師：${teacher} | 上課地點：${classroom}`,
     });
     setIsAssignmentModalOpen(true);
@@ -430,83 +382,61 @@ function AppContent() {
   const handleOpenAddModal = (defaultStatus?: AssignmentStatus, defaultSubjectId?: string) => {
     setEditingAssignment(null);
     setPrefillAssignmentData(null);
-    setPendingDriveAttachments([]);
     if (defaultSubjectId) {
       setSelectedSubjectId(defaultSubjectId);
     }
     setIsAssignmentModalOpen(true);
   };
 
-  const handleTriggerRestore = () => {
-    restoreFileInputRef.current?.click();
-  };
-
-  const handleFileRestoreChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const text = await file.text();
-    const res = await restoreEncryptedBackup(text);
-    if (res.success && res.assignments) {
-      setAssignments(res.assignments);
-      setConfirmConfig({
-        isOpen: true,
-        title: '✅ 安全備份還原成功！',
-        message: `已通過 SHA-256 完整性雜湊與數位簽章檢驗，成功復原 ${res.assignments.length} 筆作業記錄。`,
-        isDestructive: false,
-        onConfirm: () => setConfirmConfig((c) => ({ ...c, isOpen: false })),
-      });
-    } else {
-      setConfirmConfig({
-        isOpen: true,
-        title: '🚨 備份檔校驗失敗，拒絕還原！',
-        message: res.error || 'SHA-256 雜湊或數位簽章不符，疑似遭到竄改。',
-        isDestructive: true,
-        onConfirm: () => setConfirmConfig((c) => ({ ...c, isOpen: false })),
+  const handleLogout = () => {
+    if (currentUser) {
+      logAuditEvent({
+        category: 'auth',
+        action: '登出系統',
+        actor: currentUser,
+        details: `${currentUser.displayName} 登出了系統。`,
       });
     }
-    e.target.value = '';
+    logoutSession();
+    setCurrentUser(null);
+    playChime('info');
   };
 
-  const handleExportSecureBackup = async () => {
-    const jsonStr = await generateEncryptedBackup(assignments);
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `作業統整安全備份_${new Date().toISOString().slice(0, 10)}.cma.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  // If visitor is not logged in: display LoginView (訪客不能存取內容需要登入)
+  if (!currentUser) {
+    return (
+      <LoginView
+        onLoginSuccess={(user) => setCurrentUser(user)}
+        isDarkMode={isDarkMode}
+        onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
+      />
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-slate-50/60 flex flex-col font-sans text-slate-800 antialiased selection:bg-blue-500 selection:text-white">
-      {/* Top Navigation */}
+    <div className="min-h-screen bg-slate-50/60 dark:bg-slate-950 flex flex-col font-sans text-slate-800 dark:text-slate-100 antialiased selection:bg-blue-500 selection:text-white transition-colors duration-200">
+      {/* Top Navigation with Dark Mode Toggle & Role Authentication */}
       <Navbar
-        user={user}
-        isAuthenticated={isAuthenticated}
-        isSigningIn={isSigningIn}
-        onSignIn={handleSignIn}
-        onSignOut={handleSignOut}
         onOpenAddModal={() => handleOpenAddModal()}
         onOpenSchedule={() => setIsScheduleModalOpen(true)}
-        onOpenSecurity={() => setViewMode(viewMode === 'security' ? 'list' : 'security')}
-        isSecurityView={viewMode === 'security'}
-        onExportBackup={handleExportSecureBackup}
-        onRestoreBackup={handleTriggerRestore}
-        onResetData={handleResetData}
+        onOpenOverview={() => setViewMode('subjects')}
+        onOpenBackupRestore={() => setIsBackupRestoreModalOpen(true)}
+        onOpenAuditLogs={() => setIsAuditLogModalOpen(true)}
+        onClearAllAssignments={handleClearAllAssignments}
         notificationGranted={notificationGranted}
         setNotificationGranted={setNotificationGranted}
+        assignmentCount={assignments.length}
+        currentUser={currentUser}
+        onLogout={handleLogout}
+        onOpenChangePassword={() => setIsChangePasswordModalOpen(true)}
+        onOpenUserManagement={() => setIsUserManagementOpen(true)}
+        isDarkMode={isDarkMode}
+        onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
       />
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Active Security & Zero Trust Control Bar */}
-        <SecurityStatusBar
-          onOpenSecurityCenter={() => setViewMode('security')}
-          onOpenAuditDrawer={() => setIsAuditDrawerOpen(true)}
-        />
-
-        {/* Real-time Timetable Widget (首頁清楚顯示現在甚麼課 下一節甚麼課 在哪裡上課) */}
+        {/* Real-time Timetable Widget (掌握現在課堂與下一節課教室地點) */}
         <CurrentClassBanner
           courses={courses}
           onOpenFullSchedule={() => setIsScheduleModalOpen(true)}
@@ -522,7 +452,7 @@ function AppContent() {
           setNotificationGranted={setNotificationGranted}
         />
 
-        {/* Filter and Subject Category Bar (分類各科作業內容) */}
+        {/* Filter and Subject Category Bar with Subject Dropdown Menu */}
         <SubjectFilterBar
           subjects={subjects}
           selectedSubjectId={selectedSubjectId}
@@ -545,14 +475,18 @@ function AppContent() {
             {filteredAssignments.length === 0 ? (
               <div
                 id="empty-state-card"
-                className="bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center"
+                className="bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-slate-300 dark:border-slate-800 p-12 text-center"
               >
-                <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 mx-auto flex items-center justify-center mb-3">
-                  <Inbox className="w-6 h-6" />
+                <div className="w-14 h-14 rounded-2xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 mx-auto flex items-center justify-center mb-3 shadow-2xs">
+                  <Inbox className="w-7 h-7" />
                 </div>
-                <h3 className="text-base font-bold text-slate-800">查無相符作業項目</h3>
-                <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1 mb-5">
-                  目前篩選條件下沒有作業，您可以清除篩選條件或點擊下方按鈕新增一筆作業。
+                <h3 className="text-base font-bold text-slate-800 dark:text-white">
+                  {assignments.length === 0 ? '作業清單目前已清空' : '查無相符作業項目'}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto mt-1 mb-5">
+                  {assignments.length === 0
+                    ? '作業清單已維持空白狀態。您可以點擊下方按鈕新增作業，或從上方課堂動態直接登記隨堂作業。'
+                    : '目前篩選條件下沒有作業，您可以清除篩選條件或點擊下方按鈕新增作業。'}
                 </p>
                 <div className="flex items-center justify-center gap-3">
                   {(selectedSubjectId || isUrgentFilterActive || searchQuery || statusFilter !== 'all') && (
@@ -564,7 +498,7 @@ function AppContent() {
                         setSearchQuery('');
                         setStatusFilter('all');
                       }}
-                      className="px-3.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+                      className="px-3.5 py-2 text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors cursor-pointer"
                     >
                       清除所有篩選
                     </button>
@@ -572,7 +506,7 @@ function AppContent() {
                   <button
                     type="button"
                     onClick={() => handleOpenAddModal()}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl shadow-xs shadow-blue-200 transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl shadow-xs shadow-blue-200 dark:shadow-blue-900/40 transition-colors cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>新增作業</span>
@@ -593,7 +527,6 @@ function AppContent() {
                     onDelete={handleDeleteAssignment}
                     onStatusChange={handleStatusChange}
                     onToggleSubtask={handleToggleSubtask}
-                    onOpenDrivePicker={handleOpenDrivePicker}
                   />
                 ))}
               </div>
@@ -612,7 +545,6 @@ function AppContent() {
             onDelete={handleDeleteAssignment}
             onStatusChange={handleStatusChange}
             onToggleSubtask={handleToggleSubtask}
-            onOpenDrivePicker={handleOpenDrivePicker}
             onAddNewWithStatus={(st) => handleOpenAddModal(st)}
           />
         )}
@@ -625,7 +557,7 @@ function AppContent() {
               setEditingAssignment(asg);
               setIsAssignmentModalOpen(true);
             }}
-            onAddNewForDate={(dateStr) => {
+            onAddNewForDate={() => {
               setEditingAssignment(null);
               setIsAssignmentModalOpen(true);
             }}
@@ -655,15 +587,9 @@ function AppContent() {
             onAddNewForSubject={(id) => {
               handleOpenAddModal(undefined, id);
             }}
-          />
-        )}
-
-        {viewMode === 'security' && (
-          <SecurityLifecycleCenter
-            assignments={assignments}
-            onUpdateAssignments={(updated) => {
-              setAssignments(updated);
-              saveStoredAssignments(updated);
+            onLoadSampleAssignments={() => {
+              const samples = getSampleDemoAssignments();
+              setAssignments(samples);
             }}
           />
         )}
@@ -685,31 +611,49 @@ function AppContent() {
           setIsAssignmentModalOpen(false);
           setEditingAssignment(null);
           setPrefillAssignmentData(null);
-          setPendingDriveAttachments([]);
         }}
         onSave={handleSaveAssignment}
         subjects={subjects}
+        courses={courses}
         initialData={editingAssignment}
         prefillData={prefillAssignmentData}
-        onOpenDrivePicker={() => handleOpenDrivePicker()}
-        currentPendingAttachments={pendingDriveAttachments}
-        onRemoveAttachment={(id) => {
-          setPendingDriveAttachments((prev) => prev.filter((a) => a.id !== id));
-        }}
       />
 
-      {/* Google Drive Picker Modal */}
-      <DrivePickerModal
-        isOpen={isDrivePickerOpen}
-        onClose={() => {
-          setIsDrivePickerOpen(false);
-          setTargetAssignmentIdForDrive(null);
-        }}
-        onSelectFile={handleDriveFileSelected}
-        isAuthenticated={isAuthenticated}
-        onSignIn={handleSignIn}
-        isSigningIn={isSigningIn}
+      {/* Change Password Modal (修改密碼選項) */}
+      <ChangePasswordModal
+        isOpen={isChangePasswordModalOpen}
+        onClose={() => setIsChangePasswordModalOpen(false)}
+        currentUser={currentUser}
       />
+
+      {/* Admin User Management Modal (管理員新增 帳號建立與管理功能) */}
+      {currentUser.role === 'admin' && (
+        <UserManagementModal
+          isOpen={isUserManagementOpen}
+          onClose={() => setIsUserManagementOpen(false)}
+          currentUser={currentUser}
+        />
+      )}
+
+      {/* Backup & Restore System Modal (備份與復原系統：課表與作業) */}
+      <BackupRestoreModal
+        isOpen={isBackupRestoreModalOpen}
+        onClose={() => setIsBackupRestoreModalOpen(false)}
+        assignments={assignments}
+        onRestoreAssignments={(restored) => setAssignments(restored)}
+        courses={courses}
+        onRestoreCourses={(restored) => setCourses(restored)}
+        currentUser={currentUser}
+      />
+
+      {/* Admin Audit Log Modal (日誌系統 只有管理員可以查看) */}
+      {currentUser.role === 'admin' && (
+        <AuditLogModal
+          isOpen={isAuditLogModalOpen}
+          onClose={() => setIsAuditLogModalOpen(false)}
+          currentUser={currentUser}
+        />
+      )}
 
       {/* Confirmation Modal */}
       <ConfirmationModal
@@ -720,33 +664,6 @@ function AppContent() {
         onConfirm={confirmConfig.onConfirm}
         onCancel={() => setConfirmConfig((c) => ({ ...c, isOpen: false }))}
       />
-
-      {/* Immutable Hash-chained Audit Drawer */}
-      <AuditDrawer
-        isOpen={isAuditDrawerOpen}
-        onClose={() => setIsAuditDrawerOpen(false)}
-      />
-
-      {/* ABAC Access Denied Feedback Modal */}
-      <AccessDeniedModal />
-
-      {/* Hidden File Input for Cryptographic Backup Restore */}
-      <input
-        type="file"
-        ref={restoreFileInputRef}
-        onChange={handleFileRestoreChange}
-        accept=".json"
-        className="hidden"
-      />
     </div>
   );
 }
-
-export default function App() {
-  return (
-    <SecurityProvider>
-      <AppContent />
-    </SecurityProvider>
-  );
-}
-

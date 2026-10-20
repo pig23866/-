@@ -1,79 +1,62 @@
 import { Assignment, Subject } from '../types';
 import { DEFAULT_SUBJECTS } from './constants';
 import { getInitialAssignments } from './initialData';
+import { loadWithIntegrity, saveWithIntegrity } from './integrity';
+import { logAuditEvent } from './auditLogger';
 
-const ASSIGNMENTS_KEY = 'hw_tracker_assignments_v1';
-const SUBJECTS_KEY = 'hw_tracker_subjects_v1';
+const ASSIGNMENTS_KEY = 'hw_tracker_assignments_v2';
+const SUBJECTS_KEY = 'hw_tracker_subjects_v2';
 
 export function loadStoredAssignments(): Assignment[] {
-  try {
-    const raw = localStorage.getItem(ASSIGNMENTS_KEY);
-    let list: Assignment[];
-    if (!raw) {
-      list = getInitialAssignments();
-    } else {
-      list = JSON.parse(raw);
+  return loadWithIntegrity<Assignment[]>(
+    ASSIGNMENTS_KEY,
+    getInitialAssignments(),
+    (details) => {
+      // Quietly log security event to audit system without displaying intrusive UI hints
+      logAuditEvent({
+        category: 'security',
+        action: '完整性自動修復',
+        level: 'security',
+        actor: { username: 'System', displayName: '安全保護引擎', role: 'admin' },
+        target: ASSIGNMENTS_KEY,
+        details,
+      });
     }
-
-    // Ensure security lifecycle metadata exists for all assignments
-    const sanitized = list.map((a, idx) => {
-      const isConfidential = a.title.includes('數位電路') || a.title.includes('軍事') || a.title.includes('車輛');
-      return {
-        ...a,
-        securityClassification: a.securityClassification || (isConfidential ? 'confidential' : 'unclassified'),
-        integrityHash: a.integrityHash || `sha256_${(idx + 1) * 314159}_${a.id}`,
-        digitalSignature: a.digitalSignature || `SIG_HMAC_CMA_${(idx + 1) * 8892}`,
-        encryptionStatus: a.encryptionStatus || 'aes_256_gcm',
-        keyVersion: a.keyVersion || 1,
-        lifecycleStage: a.lifecycleStage || 'storage',
-        signedBy: a.signedBy || '張祐銘 (學員 98012)',
-      };
-    });
-
-    saveStoredAssignments(sanitized);
-    return sanitized;
-  } catch (e) {
-    console.error('Failed to load assignments from localStorage:', e);
-    return getInitialAssignments();
-  }
+  );
 }
 
 export function saveStoredAssignments(assignments: Assignment[]): void {
-  try {
-    localStorage.setItem(ASSIGNMENTS_KEY, JSON.stringify(assignments));
-  } catch (e) {
-    console.error('Failed to save assignments to localStorage:', e);
-  }
+  saveWithIntegrity(ASSIGNMENTS_KEY, assignments);
+}
+
+export function clearAllStoredAssignments(): void {
+  saveWithIntegrity(ASSIGNMENTS_KEY, []);
 }
 
 export function loadStoredSubjects(): Subject[] {
-  try {
-    const raw = localStorage.getItem(SUBJECTS_KEY);
-    if (!raw) {
-      saveStoredSubjects(DEFAULT_SUBJECTS);
-      return DEFAULT_SUBJECTS;
+  const loaded = loadWithIntegrity<Subject[]>(
+    SUBJECTS_KEY,
+    DEFAULT_SUBJECTS,
+    (details) => {
+      logAuditEvent({
+        category: 'security',
+        action: '完整性自動修復',
+        level: 'security',
+        actor: { username: 'System', displayName: '安全保護引擎', role: 'admin' },
+        target: SUBJECTS_KEY,
+        details,
+      });
     }
-    return JSON.parse(raw);
-  } catch (e) {
-    console.error('Failed to load subjects from localStorage:', e);
+  );
+
+  const hasLegacy = loaded.some((s) => s.id === 'math' || s.name === '數學' || s.name === '國語文');
+  if (hasLegacy || loaded.length === 0) {
+    saveStoredSubjects(DEFAULT_SUBJECTS);
     return DEFAULT_SUBJECTS;
   }
+  return loaded;
 }
 
 export function saveStoredSubjects(subjects: Subject[]): void {
-  try {
-    localStorage.setItem(SUBJECTS_KEY, JSON.stringify(subjects));
-  } catch (e) {
-    console.error('Failed to save subjects to localStorage:', e);
-  }
-}
-
-export function exportAssignmentsJSON(assignments: Assignment[]): void {
-  const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(assignments, null, 2));
-  const downloadAnchor = document.createElement('a');
-  downloadAnchor.setAttribute('href', dataStr);
-  downloadAnchor.setAttribute('download', `作業備份_${new Date().toISOString().slice(0, 10)}.json`);
-  document.body.appendChild(downloadAnchor);
-  downloadAnchor.click();
-  downloadAnchor.remove();
+  saveWithIntegrity(SUBJECTS_KEY, subjects);
 }
